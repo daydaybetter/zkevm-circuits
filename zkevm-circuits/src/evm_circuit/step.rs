@@ -415,13 +415,20 @@ impl ResponsibleOp {
 
 /// Dynamic selector that generates expressions of degree 2 to select from N
 /// possible targets using N/2 + 1 cells.
+/// Dynamic selector that generates expressions of degree 2 to select from N possible targets using
+/// N/2 + 1 cells. 生成2次表达式的动态选择器，使用N/2 +
+/// 1个单元格从N个可能的目标中选择。生成2次表达式的动态选择器，使用N/2 +
+/// 1个单元格从N个可能的目标中选择。
 #[derive(Clone, Debug)]
 pub(crate) struct DynamicSelectorHalf<F> {
     /// N value: how many possible targets this selector supports.
+    /// N 值：这个选择器支持多少个可能的目标。
     count: usize,
     /// Whether the target is odd.  `target % 2 == 1`.
+    /// 目标是否奇数。 `目标 % 2 == 1`。
     pub(crate) target_odd: Cell<F>,
     /// Whether the target belongs to each consecutive pair of targets.
+    /// 目标是否属于每对连续的目标。
     /// `in [0, 1], in [2, 3], in [4, 5], ...`
     pub(crate) target_pairs: Vec<Cell<F>>,
 }
@@ -438,8 +445,12 @@ impl<F: FieldExt> DynamicSelectorHalf<F> {
     }
 
     /// Return the list of constraints that configure this "gadget".
+    /// 返回配置此“小工具”的约束列表。
     pub(crate) fn configure(&self) -> Vec<(&'static str, Expression<F>)> {
         // Only one of target_pairs should be enabled
+        // 只应启用 target_pairs 之一
+        // Comment: 每一个Step中的target_pair只有一个有效状态。
+        // 实现的方法是将所有的状态的Cell的数值累加起来。sum_to_one是1-sum的表达式（expression）。
         let sum_to_one = (
             "Only one of target_pairs should be enabled",
             self.target_pairs
@@ -447,6 +458,8 @@ impl<F: FieldExt> DynamicSelectorHalf<F> {
                 .fold(1u64.expr(), |acc, cell| acc - cell.expr()),
         );
         // Cells representation for target_pairs and target_odd should be bool.
+        // target_pairs 和 target_odd 的单元格表示应该是 bool。
+        // Comment: 每一个Step中target_pairs和target_odd是布尔值。检查的方法采用x*(1-x)。
         let bool_checks = iter::once(&self.target_odd)
             .chain(&self.target_pairs)
             .map(|cell| {
@@ -459,6 +472,7 @@ impl<F: FieldExt> DynamicSelectorHalf<F> {
             iter::once(sum_to_one).chain(bool_checks).collect();
         // In case count is odd, we must forbid selecting N+1 with (odd = 1,
         // target_pairs[-1] = 1)
+        // 如果 count 是奇数，我们必须禁止选择 N+1 满足 (odd = 1, target_pairs[-1] = 1)
         if self.count % 2 == 1 {
             constraints.push((
                 "Forbid N+1 target when N is odd",
@@ -515,21 +529,28 @@ impl<F: FieldExt> DynamicSelectorHalf<F> {
 #[derive(Clone, Debug)]
 pub(crate) struct StepState<F> {
     /// The execution state selector for the step
+    /// 步骤的执行状态Selector
     pub(crate) execution_state: DynamicSelectorHalf<F>,
     /// The Read/Write counter
+    /// 读/写计数器
     pub(crate) rw_counter: Cell<F>,
     /// The unique identifier of call in the whole proof, using the
     /// `rw_counter` at the call step.
+    /// 整个证明中调用的唯一标识符，在调用步骤使用`rw_counter`。
     pub(crate) call_id: Cell<F>,
     /// The transaction id of this transaction within the block.
+    /// 该交易在区块内的交易ID。
     pub(crate) tx_id: Cell<F>,
     /// Whether the call is root call
+    /// 调用是否为root调用
     pub(crate) is_root: Cell<F>,
     /// Whether the call is a create call
+    /// 调用是否为创建调用
     pub(crate) is_create: Cell<F>,
     /// The block number the state currently is in. This is particularly
     /// important as multiple blocks can be assigned and proven in a single
     /// circuit instance.
+    /// 当前状态所在的块编号。这尤其重要，因为可以在单个电路实例中分配和证明多个块。
     pub(crate) block_number: Cell<F>,
     /// Denotes the hash of the bytecode for the current call.
     /// In the case of a contract creation root call, this denotes the hash of
@@ -537,18 +558,27 @@ pub(crate) struct StepState<F> {
     /// In the case of a contract creation internal call, this denotes the hash
     /// of the chunk of bytes from caller's memory that represent the
     /// contract init code.
+    /// 表示当前调用的字节码的哈希值。在合约创建根调用的情况下，这表示 tx
+    /// 调用数据的哈希值。在合约创建内部调用的情况下，
+    /// 这表示来自调用者内存的代表合约初始化代码的字节块的散列。
     pub(crate) code_hash: Cell<F>,
     /// The program counter
+    /// 程序计数器
     pub(crate) program_counter: Cell<F>,
     /// The stack pointer
+    /// 堆栈指针
     pub(crate) stack_pointer: Cell<F>,
     /// The amount of gas left
+    /// 剩余gas
     pub(crate) gas_left: Cell<F>,
     /// Memory size in words (32 bytes)
+    /// 以字为单位的内存大小（32 字节）
     pub(crate) memory_word_size: Cell<F>,
     /// The counter for reversible writes
+    /// 可回滚写入计数器
     pub(crate) reversible_write_counter: Cell<F>,
     /// The counter for log index
+    /// 日志索引计数器
     pub(crate) log_id: Cell<F>,
 }
 
@@ -559,6 +589,7 @@ pub(crate) struct Step<F> {
 }
 
 impl<F: FieldExt> Step<F> {
+    // Step创建函数
     pub(crate) fn new(
         meta: &mut ConstraintSystem<F>,
         advices: [Column<Advice>; STEP_WIDTH],

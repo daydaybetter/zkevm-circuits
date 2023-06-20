@@ -303,7 +303,6 @@ q_step：Step的Selector
 num_rows_until_next_step：
 q_step_first：第一个Step的Selector
 q_step_last：最后一个Step的Selector
-<font color="red">qs_byte_lookup：byte范围检查的Selector</font>
 <font color="red">对于一个Step，采用32个Column的数据进行约束</font>
 
 #### Step
@@ -324,6 +323,290 @@ pub(crate) struct Step<F> {
     pub(crate) state: StepState<F>,
     pub(crate) cell_manager: CellManager<F>,
 }
+```
+
+Step由StepState和CellManager组成。CellManager定义在`zkevm-circuits/zkevm-circuits/src/evm_circuit/step.rs`中，包含了一个Step涉及的所有信息。
+```rust
+pub(crate) struct CellManager<F> {
+    width: usize,
+    height: usize,
+    cells: Vec<Cell<F>>,
+    columns: Vec<CellColumn<F>>,
+}
+```
+
+StepState数据结构包括了一个Step对应的状态信息：
+```rust
+pub(crate) struct StepState<F> {
+    /// The execution state selector for the step
+    pub(crate) execution_state: DynamicSelectorHalf<F>,
+    /// The Read/Write counter
+    pub(crate) rw_counter: Cell<F>,
+    /// The unique identifier of call in the whole proof, using the
+    /// `rw_counter` at the call step.
+    pub(crate) call_id: Cell<F>,
+    /// The transaction id of this transaction within the block.
+    pub(crate) tx_id: Cell<F>,
+    /// Whether the call is root call
+    pub(crate) is_root: Cell<F>,
+    /// Whether the call is a create call
+    pub(crate) is_create: Cell<F>,
+    /// The block number the state currently is in. This is particularly
+    /// important as multiple blocks can be assigned and proven in a single
+    /// circuit instance.
+    pub(crate) block_number: Cell<F>,
+    /// Denotes the hash of the bytecode for the current call.
+    /// In the case of a contract creation root call, this denotes the hash of
+    /// the tx calldata.
+    /// In the case of a contract creation internal call, this denotes the hash
+    /// of the chunk of bytes from caller's memory that represent the
+    /// contract init code.
+    pub(crate) code_hash: Cell<F>,
+    /// The program counter
+    pub(crate) program_counter: Cell<F>,
+    /// The stack pointer
+    pub(crate) stack_pointer: Cell<F>,
+    /// The amount of gas left
+    pub(crate) gas_left: Cell<F>,
+    /// Memory size in words (32 bytes)
+    pub(crate) memory_word_size: Cell<F>,
+    /// The counter for reversible writes
+    pub(crate) reversible_write_counter: Cell<F>,
+    /// The counter for log index
+    pub(crate) log_id: Cell<F>,
+}
+```
+
+StepState的各个变量的定义：
+
+- execution_state：表明当前Step的执行状态。一个Step的执行状态定义在step.rs。
+- rw_counter - Stack/Memory访问时采用rw_counter区分开同一个地址的访问
+- call_id - 每一个函数调用赋予一个id，用于区分不同的程序
+- is_root - 是否是根
+- is_create - 是否是create调用
+- code_source - 调用程序的标示（一般是个程序的hash结果）
+- program_counter - PC
+- stack_point - 栈指针
+- gas_left - 剩下的gas数量
+- memory_word_size - memory的大小(以word（32字节）为单位)
+- state_write_counter - 状态写入的计数器
+
+```rust
+pub enum ExecutionState {
+    // Internal state
+    BeginTx,
+    EndTx,
+    EndInnerBlock,
+    EndBlock,
+    // Opcode successful cases
+    STOP,
+    ADD_SUB,     // ADD, SUB
+    MUL_DIV_MOD, // MUL, DIV, MOD
+    SDIV_SMOD,   // SDIV, SMOD
+    SHL_SHR,     // SHL, SHR
+    ADDMOD,
+    MULMOD,
+    EXP,
+    SIGNEXTEND,
+    CMP,  // LT, GT, EQ
+    SCMP, // SLT, SGT
+    ISZERO,
+    BITWISE, // AND, OR, XOR
+    NOT,
+    BYTE,
+    SAR,
+    SHA3,
+    ADDRESS,
+    BALANCE,
+    ORIGIN,
+    CALLER,
+    CALLVALUE,
+    CALLDATALOAD,
+    CALLDATASIZE,
+    CALLDATACOPY,
+    CODESIZE,
+    CODECOPY,
+    GASPRICE,
+    EXTCODESIZE,
+    EXTCODECOPY,
+    RETURNDATASIZE,
+    RETURNDATACOPY,
+    EXTCODEHASH,
+    BLOCKHASH,
+    BLOCKCTXU64,  // TIMESTAMP, NUMBER, GASLIMIT
+    BLOCKCTXU160, // COINBASE
+    BLOCKCTXU256, // DIFFICULTY, BASEFEE
+    CHAINID,
+    SELFBALANCE,
+    POP,
+    MEMORY, // MLOAD, MSTORE, MSTORE8
+    SLOAD,
+    SSTORE,
+    JUMP,
+    JUMPI,
+    PC,
+    MSIZE,
+    GAS,
+    JUMPDEST,
+    PUSH, // PUSH0, PUSH1, PUSH2, ..., PUSH32
+    DUP,  // DUP1, DUP2, ..., DUP16
+    SWAP, // SWAP1, SWAP2, ..., SWAP16
+    LOG,  // LOG0, LOG1, ..., LOG4
+    CREATE,
+    CREATE2,
+    CALL_OP,       // CALL, CALLCODE, DELEGATECALL, STATICCALL
+    RETURN_REVERT, // RETURN, REVERT
+    SELFDESTRUCT,
+    // Error cases
+    ErrorInvalidOpcode,
+    ErrorStack,
+    ErrorWriteProtection,
+    ErrorInvalidCreationCode,
+    ErrorInvalidJump,
+    ErrorReturnDataOutOfBound,
+    ErrorPrecompileFailed,
+    ErrorOutOfGasConstant,
+    ErrorOutOfGasStaticMemoryExpansion,
+    ErrorOutOfGasDynamicMemoryExpansion,
+    ErrorOutOfGasMemoryCopy,
+    ErrorOutOfGasAccountAccess,
+    // error for CodeStoreOOG and MaxCodeSizeExceeded
+    ErrorCodeStore,
+    ErrorOutOfGasLOG,
+    ErrorOutOfGasEXP,
+    ErrorOutOfGasSHA3,
+    ErrorOutOfGasCall,
+    ErrorOutOfGasSloadSstore,
+    ErrorOutOfGasCREATE,
+    ErrorOutOfGasSELFDESTRUCT,
+    // Precompiles
+    PrecompileEcRecover,
+    PrecompileSha256,
+    PrecompileRipemd160,
+    PrecompileIdentity,
+    PrecompileBigModExp,
+    PrecompileBn256Add,
+    PrecompileBn256ScalarMul,
+    PrecompileBn256Pairing,
+    PrecompileBlake2f,
+}
+```
+
+一个Step的执行状态，包括了内部的状态（一个区块中的交易，通过BeginTx、EndTx隔离），opcode的成功执行状态以及错误状态。有关opcode的成功执行状态，表示的是一个约束能表示的情况下的执行状态。即，多个opcode，如果采用的同一个约束，可以用一个执行状态表示。举个例子，ADD/SUB opcode采用的是一个约束，对于这两个opcode，可以采用同一个执行状态进行约束。
+
+Step的创建函数（new），在创建Step的时候分别创建了StepState和CellManager。
+
+```rust
+pub(crate) fn new(
+    meta: &mut ConstraintSystem<F>,
+    advices: [Column<Advice>; STEP_WIDTH],
+    offset: usize,
+    is_next: bool,
+) -> Self {
+    let height = if is_next {
+        STEP_STATE_HEIGHT // Query only the state of the next step.
+    } else {
+        MAX_STEP_HEIGHT // Query the entire current step.
+    };
+    let mut cell_manager = CellManager::new(meta, height, &advices, offset);
+    let state = {
+        StepState {
+            execution_state: DynamicSelectorHalf::new(
+                &mut cell_manager,
+                ExecutionState::amount(),
+            ),
+            rw_counter: cell_manager.query_cell(CellType::StoragePhase1),
+            call_id: cell_manager.query_cell(CellType::StoragePhase1),
+            tx_id: cell_manager.query_cell(CellType::StoragePhase1),
+            is_root: cell_manager.query_cell(CellType::StoragePhase1),
+            is_create: cell_manager.query_cell(CellType::StoragePhase1),
+            code_hash: cell_manager.query_cell(CellType::StoragePhase2),
+            block_number: cell_manager.query_cell(CellType::StoragePhase1),
+            program_counter: cell_manager.query_cell(CellType::StoragePhase1),
+            stack_pointer: cell_manager.query_cell(CellType::StoragePhase1),
+            gas_left: cell_manager.query_cell(CellType::StoragePhase1),
+            memory_word_size: cell_manager.query_cell(CellType::StoragePhase1),
+            reversible_write_counter: cell_manager.query_cell(CellType::StoragePhase1),
+            log_id: cell_manager.query_cell(CellType::StoragePhase1),
+        }
+    };
+    Self {
+        state,
+        cell_manager,
+    }
+}
+```
+
+按照21行*140列，创建出对应于advice Column的Cell。在同一个Column中不同的Cell，采用Rotation（偏移）进行区分。在编写电路业务的时候，特别注意对Cell的抽象和描述，这些模块化的电路可能会应用多个实例。再观察这些StepState对应的Cell，这些Cell再配合上q_step相应的选择子，就可以精确的描述一个Step的电路约束逻辑。
+
+#### Custom Gate约束
+
+Custom Gate的约束相对来说最复杂。Custom Gate的约束包括：
+a. 每一个Step中的target_pair只有一个有效状态。
+b. 每一个Step中target_pairs和target_odd是布尔值。检查的方法采用x*(1-x)。
+c. 相邻的两个ExecutionState满足约定的条件：如 EndTx 状态只能过渡到 BeginTx 或 EndInnerBlock等。特别注意这些相邻的约束对于最后一个Step不需要满足。
+d. 第一个Step的状态必须是BeginTx或者EndBlock，最后一个Step的状态必须是EndBlock。
+
+特别注意，以上custom gate的约束都是相对于某个Step，所以所有约束都必须加上q_step的限制。
+
+#### Advice Column的数据范围约束
+
+约束每个advice都是byte（即Range256）的范围内。因为范围（Range）的约束实现是在fixed_table中，由4个fixed column组成。所以Range256的范围约束由tag/value等四部分对应。
+
+划分了Colum的类型，定义了每个Step的电路范围，并且约束了每个Step中的状态以及相邻两个Step的状态关系。
+
+#### Gadget约束
+
+对于每一种类型的操作（opcode），创建对应的Gadget约束，具体逻辑实现是在`zkevm-circuits/src/evm_circuit/execution.rs`的configure_gadget函数中：
+
+```rust
+fn configure_gadget<G: ExecutionGadget<F>>(
+    meta: &mut ConstraintSystem<F>,
+    advices: [Column<Advice>; STEP_WIDTH],
+    q_usable: Selector,
+    q_step: Column<Advice>,
+    num_rows_until_next_step: Column<Advice>,
+    q_step_first: Selector,
+    q_step_last: Selector,
+    challenges: &Challenges<Expression<F>>,
+    step_curr: &Step<F>,
+    height_map: &mut HashMap<ExecutionState, usize>,
+    stored_expressions_map: &mut HashMap<ExecutionState, Vec<StoredExpression<F>>>,
+    instrument: &mut Instrument,
+) -> G {
+    ...
+}
+```
+
+对于Gadget的约束，抽象出EVMConstraintBuilder：
+
+```rust
+let mut cb = EVMConstraintBuilder::new(
+    step_curr.clone(),
+    step_next.clone(),
+    challenges,
+    G::EXECUTION_STATE,
+);
+
+let gadget = G::configure(&mut cb);
+
+Self::configure_gadget_impl(
+    meta,
+    q_usable,
+    q_step,
+    num_rows_until_next_step,
+    q_step_first,
+    q_step_last,
+    step_curr,
+    step_next,
+    height_map,
+    stored_expressions_map,
+    instrument,
+    G::NAME,
+    G::EXECUTION_STATE,
+    height,
+    cb,
+);
 ```
 
 # 杂 - other

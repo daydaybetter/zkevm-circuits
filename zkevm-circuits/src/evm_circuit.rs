@@ -41,6 +41,7 @@ pub struct EvmCircuitConfig<F> {
     byte_table: [Column<Fixed>; 1],
     pub(crate) execution: Box<ExecutionConfig<F>>,
     // External tables
+    // 外部表
     tx_table: TxTable,
     rw_table: RwTable,
     bytecode_table: BytecodeTable,
