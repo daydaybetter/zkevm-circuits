@@ -305,6 +305,7 @@ impl<F: Field> SubCircuit<F> for EvmCircuit<F> {
 
         config.load_fixed_table(layouter, self.fixed_table_tags.clone())?;
         config.load_byte_table(layouter)?;
+        // 通过assign_block对一个Block中的所有交易进行证明
         let export = config.execution.assign_block(layouter, block, challenges)?;
         self.exports.borrow_mut().replace(export);
         Ok(())
@@ -476,6 +477,7 @@ impl<F: Field> Circuit<F> for EvmCircuit<F> {
             .dev_load(&mut layouter, &block.sha3_inputs, &challenges)?;
         config.exp_table.dev_load(&mut layouter, block)?;
 
+        // 调用synthesize_sub
         self.synthesize_sub(&config, &challenges, &mut layouter)
     }
 }

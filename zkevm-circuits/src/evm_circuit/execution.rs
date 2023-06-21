@@ -670,6 +670,7 @@ impl<F: Field> ExecutionConfig<F> {
         &self.instrument
     }
 
+    // 配置小工具（Gadget）
     #[allow(clippy::too_many_arguments)]
     fn configure_gadget<G: ExecutionGadget<F>>(
         meta: &mut ConstraintSystem<F>,
@@ -687,6 +688,7 @@ impl<F: Field> ExecutionConfig<F> {
     ) -> G {
         // Configure the gadget with the max height first so we can find out the actual
         // height
+        // 首先将小工具配置为最大高度，以便我们可以找出实际高度
         let height = {
             let dummy_step_next = Step::new(meta, advices, MAX_STEP_HEIGHT, true);
             let mut cb = EVMConstraintBuilder::new(
@@ -701,8 +703,9 @@ impl<F: Field> ExecutionConfig<F> {
         };
 
         // Now actually configure the gadget with the correct minimal height
+        // 现在实际为小工具配置正确的最小高度
         let step_next = &Step::new(meta, advices, height, true);
-        let mut cb = EVMConstraintBuilder::new(
+        let mut cb: EVMConstraintBuilder<'_, F> = EVMConstraintBuilder::new(
             step_curr.clone(),
             step_next.clone(),
             challenges,
@@ -925,6 +928,7 @@ impl<F: Field> ExecutionConfig<F> {
         challenges: &Challenges<Expression<F>>,
         cell_manager: &CellManager<F>,
     ) {
+        // Comment: 为一些输入表达式和table表达式添加查找参数
         for column in cell_manager.columns().iter() {
             if let CellType::Lookup(table) = column.cell_type {
                 let name = format!("{:?}", table);
@@ -1015,6 +1019,7 @@ impl<F: Field> ExecutionConfig<F> {
     /// Assign block
     /// When exact is enabled, assign exact steps in block without padding for
     /// unit test purpose
+    /// 启用精确时，为单元测试目的在不填充的情况下分配块中的精确步骤
     pub fn assign_block(
         &self,
         layouter: &mut impl Layouter<F>,
@@ -1038,6 +1043,7 @@ impl<F: Field> ExecutionConfig<F> {
                 }
                 let mut offset = 0;
 
+                // Annotate the EVMCircuit columns within it's single region.
                 // Annotate the EVMCircuit columns within it's single region.
                 self.annotate_circuit(&mut region);
 

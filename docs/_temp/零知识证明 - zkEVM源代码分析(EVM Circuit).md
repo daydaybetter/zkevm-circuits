@@ -578,7 +578,7 @@ cb.build就是对于每个Gadget的约束进行修正和补充。对于当前Ste
       )
 ```
 
-到此，Step的约束框架浮现出来了。ExecuteState是可能的执行状态，相对于qs_step来说，execute_state的相对位置固定。并且execute_state的每个Cell的值必须是布尔类型，有且只有一个执行状态有效。针对每个执行状态，存在相应的Gadget电路。所有的Gadget电路在cb.build的阶段都必须加上execution_state_selector选择子。也就是说，整个EVM Circuit电路逻辑上包括了所有执行状态的约束。
+到此，Step的约束框架浮现出来了。ExecuteState是可能的执行状态，相对于q_step来说，execute_state的相对位置固定。并且execute_state的每个Cell的值必须是布尔类型，有且只有一个执行状态有效。针对每个执行状态，存在相应的Gadget电路。所有的Gadget电路在cb.build的阶段都必须加上execution_state_selector选择子。也就是说，整个EVM Circuit电路逻辑上包括了所有执行状态的约束。
 
 在讲最后一部分，其他Lookup约束之前，介绍一下Stack约束和Context约束。
 
