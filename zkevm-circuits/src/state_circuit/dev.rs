@@ -22,6 +22,7 @@ where
         Self::default()
     }
 
+    // 定义约束
     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
         let rw_table = RwTable::construct(meta);
         let mpt_table = MptTable::construct(meta);
@@ -29,6 +30,7 @@ where
 
         let config = {
             let challenges = challenges.exprs(meta);
+            // StateCircuitConfig 定义约束
             StateCircuitConfig::new(
                 meta,
                 StateCircuitConfigArgs {
