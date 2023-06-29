@@ -185,6 +185,7 @@ impl<F: Field> SubCircuitConfig<F> for StateCircuitConfig<F> {
             mpt_table,
         };
 
+        // 构建约束
         let mut constraint_builder = ConstraintBuilder::new();
         meta.create_gate("state circuit constraints", |meta| {
             let queries = queries(meta, &config);
@@ -206,6 +207,7 @@ impl<F: Field> StateCircuitConfig<F> {
     }
 
     /// Make the assignments to the StateCircuit
+    /// 对 StateCircuit 进行分配
     pub fn assign(
         &self,
         layouter: &mut impl Layouter<F>,
@@ -299,6 +301,7 @@ impl<F: Field> StateCircuitConfig<F> {
 
                 if is_first_access {
                     // If previous row was a last access, we need to update the state root.
+                    // 如果上一行是最后一次访问，我们需要更新状态根。
                     state_root = randomness
                         .zip(state_root)
                         .map(|(randomness, mut state_root)| {
@@ -323,6 +326,7 @@ impl<F: Field> StateCircuitConfig<F> {
             }
 
             // The initial value can be determined from the mpt updates or is 0.
+            // 初始值可以根据mpt更新确定或者为0。
             let initial_value = randomness.map(|randomness| {
                 updates
                     .get(row)
@@ -338,6 +342,7 @@ impl<F: Field> StateCircuitConfig<F> {
 
             // Identify non-existing if both committed value and new value are zero and field tag is
             // CodeHash
+            // 如果承诺值和新值均为零且field tag是CodeHash，则识别为不存在。
             let is_non_exist_inputs = randomness.map(|randomness| {
                 let (_, committed_value) = updates
                     .get(row)
@@ -388,6 +393,7 @@ impl<F: Field> StateCircuitConfig<F> {
             // TODO: Switch from Rw::Start -> Rw::Padding to simplify this logic.
             // State root assignment is at previous row (offset - 1) because the state root
             // changes on the last access row.
+            // 状态根分配位于前一行（offset-1），因为状态根在最后一个访问行发生更改。
             if offset != 0 {
                 let assigned = region.assign_advice(
                     || "state_root",
@@ -403,6 +409,8 @@ impl<F: Field> StateCircuitConfig<F> {
             if offset + 1 == rows_len {
                 // The last row is always a last access, so we need to handle the case where the
                 // state root changes because of an mpt lookup on the last row.
+                // 最后一行始终是最后一次访问，
+                // 因此我们需要处理由于最后一行的mpt查找而导致状态根发生变化的情况。
                 if let Some(update) = updates.get(row) {
                     state_root = randomness.zip(state_root).map(|(randomness, state_root)| {
                         let (new_root, old_root) = update.root_assignments(randomness);

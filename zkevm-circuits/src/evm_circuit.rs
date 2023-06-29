@@ -35,12 +35,14 @@ use table::FixedTableTag;
 use witness::Block;
 
 /// EvmCircuitConfig implements verification of execution trace of a block.
+/// EvmCircuitConfig 实现了对区块执行轨迹的验证。
 #[derive(Clone, Debug)]
 pub struct EvmCircuitConfig<F> {
     fixed_table: [Column<Fixed>; 4],
     byte_table: [Column<Fixed>; 1],
     pub(crate) execution: Box<ExecutionConfig<F>>,
     // External tables
+    // 外部表
     tx_table: TxTable,
     rw_table: RwTable,
     bytecode_table: BytecodeTable,
@@ -52,6 +54,7 @@ pub struct EvmCircuitConfig<F> {
 }
 
 /// Circuit configuration arguments
+/// 电路配置参数
 pub struct EvmCircuitConfigArgs<F: Field> {
     /// Challenge
     pub challenges: crate::util::Challenges<Expression<F>>,
@@ -147,11 +150,14 @@ impl<F: Field> SubCircuitConfig<F> for EvmCircuitConfig<F> {
 
 impl<F: Field> EvmCircuitConfig<F> {
     /// Load fixed table
+    /// 加载 fixed table
     pub fn load_fixed_table(
         &self,
         layouter: &mut impl Layouter<F>,
         fixed_table_tags: Vec<FixedTableTag>,
     ) -> Result<(), Error> {
+        // assign_region函数实现一个Region的synthesize过程
+        // fixed_table 和 fixed table tags
         layouter.assign_region(
             || "fixed table",
             |mut region| {
@@ -171,6 +177,7 @@ impl<F: Field> EvmCircuitConfig<F> {
 
     /// Load byte table
     pub fn load_byte_table(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
+        // assign_region函数实现一个Region的synthesize过程
         layouter.assign_region(
             || "byte table",
             |mut region| {
@@ -295,6 +302,7 @@ impl<F: Field> SubCircuit<F> for EvmCircuit<F> {
     }
 
     /// Make the assignments to the EvmCircuit
+    /// 对 EvmCircuit 进行赋值
     fn synthesize_sub(
         &self,
         config: &Self::Config,
@@ -305,6 +313,7 @@ impl<F: Field> SubCircuit<F> for EvmCircuit<F> {
 
         config.load_fixed_table(layouter, self.fixed_table_tags.clone())?;
         config.load_byte_table(layouter)?;
+        // 通过assign_block对一个Block中的所有交易进行证明
         let export = config.execution.assign_block(layouter, block, challenges)?;
         self.exports.borrow_mut().replace(export);
         Ok(())
@@ -406,6 +415,7 @@ impl<F: Field> Circuit<F> for EvmCircuit<F> {
         Self::default()
     }
 
+    // configure, 申请advice、instance、fixed columns, 定义custom gate, 定义lookup关系式
     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
         let challenges = Challenges::construct(meta);
         let challenges_expr = challenges.exprs(meta);
@@ -437,6 +447,7 @@ impl<F: Field> Circuit<F> for EvmCircuit<F> {
         )
     }
 
+    // synthesize, 分配region、给region中的变量赋值
     fn synthesize(
         &self,
         config: Self::Config,
@@ -479,6 +490,7 @@ impl<F: Field> Circuit<F> for EvmCircuit<F> {
             .sig_table
             .dev_load(&mut layouter, block, &challenges)?;
 
+        // 调用synthesize_sub
         self.synthesize_sub(&config, &challenges, &mut layouter)
     }
 }

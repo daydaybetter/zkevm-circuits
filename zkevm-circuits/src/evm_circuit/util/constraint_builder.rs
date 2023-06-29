@@ -355,8 +355,10 @@ impl<'a, F: Field> EVMConstraintBuilder<'a, F> {
 
     /// Returns (list of constraints, list of first step constraints, stored
     /// expressions, height used).
+    /// 返回（约束列表、第一步约束列表、存储的表达式、使用的高度）。
     #[allow(clippy::type_complexity)]
     pub(crate) fn build(self) -> (Constraints<F>, Vec<StoredExpression<F>>, usize) {
+        // 对于当前Step的约束或者查找表，加上execution_state的Selector。
         let exec_state_sel = self.curr.execution_state_selector([self.execution_state]);
         let mul_exec_state_sel = |c: Vec<(&'static str, Expression<F>)>| {
             c.into_iter()

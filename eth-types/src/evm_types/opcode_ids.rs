@@ -538,6 +538,7 @@ impl OpcodeId {
     }
 
     /// Returns the constant gas cost of `OpcodeId`
+    /// Comment: 返回`OpcodeId`的固定gas成本
     pub const fn constant_gas_cost(&self) -> GasCost {
         match self {
             OpcodeId::STOP => GasCost::ZERO,

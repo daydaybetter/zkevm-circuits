@@ -20,6 +20,10 @@ use halo2_proofs::plonk::Error;
 // when it's ADD, we annotate stack as [a, b, ...] and [c, ...],
 // when it's SUB, we annotate stack as [c, b, ...] and [a, ...].
 // Then we verify if a + b is equal to c.
+// AddGadget通过一个额外的交换标志同时验证ADD和SUB，
+// 当它是ADD时，我们将堆栈声明为[a, b, ...]和[c, ...]，
+// 当它是SUB时，我们将堆栈声明为[c, b, ...]和[a, ...]。
+// 然后我们验证a + b是否等于c。
 #[derive(Clone, Debug)]
 pub(crate) struct AddSubGadget<F> {
     same_context: SameContextGadget<F>,
@@ -33,14 +37,17 @@ impl<F: Field> ExecutionGadget<F> for AddSubGadget<F> {
     const EXECUTION_STATE: ExecutionState = ExecutionState::ADD_SUB;
 
     fn configure(cb: &mut EVMConstraintBuilder<F>) -> Self {
+        // 约定opcode的Cell（通过cb.query_cell）和操作字a/b/c（通过cb.query_word_rlc）
         let opcode = cb.query_cell();
 
         let a = cb.query_word_rlc();
         let b = cb.query_word_rlc();
         let c = cb.query_word_rlc();
+        // 使用AddWordsGadget构建加法约束（如果是减法也能转化为加法）
         let add_words = AddWordsGadget::construct(cb, [a.clone(), b.clone()], c.clone());
 
         // Swap a and c if opcode is SUB
+        // 如果操作码是SUB，则交换a和c
         let is_sub = PairSelectGadget::construct(
             cb,
             opcode.expr(),
@@ -50,11 +57,14 @@ impl<F: Field> ExecutionGadget<F> for AddSubGadget<F> {
 
         // ADD: Pop a and b from the stack, push c on the stack
         // SUB: Pop c and b from the stack, push a on the stack
+        // 如果是ADD：出栈a和b，入栈c
+        // 如果是SUB：出栈c和b，入栈a
         cb.stack_pop(select::expr(is_sub.expr().0, c.expr(), a.expr()));
         cb.stack_pop(b.expr());
         cb.stack_push(select::expr(is_sub.expr().0, a.expr(), c.expr()));
 
         // State transition
+        // 状态转换
         let step_state_transition = StepStateTransition {
             rw_counter: Delta(3.expr()),
             program_counter: Delta(1.expr()),

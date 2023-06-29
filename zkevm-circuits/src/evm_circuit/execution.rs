@@ -244,6 +244,7 @@ pub(crate) struct ExecutionConfig<F> {
     q_usable: Selector,
     // Dynamic selector that is enabled at the rows where each assigned execution step starts (a
     // step has dynamic height).
+    // 在每个分配的执行步骤开始的行启用的Selector（步骤具有动态高度）。
     q_step: Column<Advice>,
     // Column to hold constant values used for copy constraints
     constants: Column<Fixed>,
@@ -363,6 +364,7 @@ pub(crate) struct ExecutionConfig<F> {
 }
 
 impl<F: Field> ExecutionConfig<F> {
+    // ExecutionConfig configure
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::redundant_closure_call)]
     pub(crate) fn configure(
@@ -389,6 +391,7 @@ impl<F: Field> ExecutionConfig<F> {
         let q_step_first = meta.complex_selector();
         let q_step_last = meta.complex_selector();
 
+        // 140列
         let advices = [(); STEP_WIDTH]
             .iter()
             .enumerate()
@@ -408,6 +411,7 @@ impl<F: Field> ExecutionConfig<F> {
         let step_curr = Step::new(meta, advices, 0, false);
         let mut height_map = HashMap::new();
 
+        // 约束执行状态
         meta.create_gate("Constrain execution state", |meta| {
             let q_usable = meta.query_selector(q_usable);
             let q_step = meta.query_advice(q_step, Rotation::cur());
@@ -417,6 +421,9 @@ impl<F: Field> ExecutionConfig<F> {
             let execution_state_selector_constraints = step_curr.state.execution_state.configure();
 
             // NEW: Enabled, this will break hand crafted tests, maybe we can remove them?
+            // 新：启用，这将破坏手工制作的测试，也许我们可以删除它们？
+            // Comment: 第一个Step的状态必须是BeginTx或者EndBlock，
+            // 最后一个Step的状态必须是EndBlock。
             let first_step_check = {
                 let begin_tx_end_block_selector = step_curr
                     .execution_state_selector([ExecutionState::BeginTx, ExecutionState::EndBlock]);
@@ -435,6 +442,8 @@ impl<F: Field> ExecutionConfig<F> {
                 ))
             };
 
+            // Comment: 特别注意，以上custom gate的约束都是相对于某个Step，
+            // 所以所有约束都必须加上q_step的限制。
             execution_state_selector_constraints
                 .into_iter()
                 .map(move |(name, poly)| (name, q_usable.clone() * q_step.clone() * poly))
@@ -442,6 +451,7 @@ impl<F: Field> ExecutionConfig<F> {
                 .chain(last_step_check)
         });
 
+        // 创建q_step gate
         meta.create_gate("q_step", |meta| {
             let q_usable = meta.query_selector(q_usable);
             let q_step_first = meta.query_selector(q_step_first);
@@ -662,6 +672,7 @@ impl<F: Field> ExecutionConfig<F> {
         &self.instrument
     }
 
+    // 配置小工具（Gadget）
     #[allow(clippy::too_many_arguments)]
     fn configure_gadget<G: ExecutionGadget<F>>(
         meta: &mut ConstraintSystem<F>,
@@ -679,6 +690,7 @@ impl<F: Field> ExecutionConfig<F> {
     ) -> G {
         // Configure the gadget with the max height first so we can find out the actual
         // height
+        // 首先将小工具配置为最大高度，以便我们可以找出实际高度
         let height = {
             let dummy_step_next = Step::new(meta, advices, MAX_STEP_HEIGHT, true);
             let mut cb = EVMConstraintBuilder::new(
@@ -693,6 +705,7 @@ impl<F: Field> ExecutionConfig<F> {
         };
 
         // Now actually configure the gadget with the correct minimal height
+        // 现在实际为小工具配置正确的最小高度
         let step_next = &Step::new(meta, advices, height, true);
         let mut cb = EVMConstraintBuilder::new(
             step_curr.clone(),
@@ -796,12 +809,17 @@ impl<F: Field> ExecutionConfig<F> {
         }
 
         // Enforce the state transitions for this opcode
+        // 强制执行此操作码的状态转换
         meta.create_gate("Constrain state machine transitions", |meta| {
             let q_usable = meta.query_selector(q_usable);
             let q_step = meta.query_advice(q_step, Rotation::cur());
             let q_step_last = meta.query_selector(q_step_last);
 
             // ExecutionState transition should be correct.
+            // ExecutionState 转换应该是正确的。
+            // Comment: 相邻的两个ExecutionState满足约定的条件：
+            // EndTx 状态只能过渡到 BeginTx 或 EndInnerBlock
+            // ...
             iter::empty()
                 .chain(
                     IntoIterator::into_iter([
@@ -884,6 +902,8 @@ impl<F: Field> ExecutionConfig<F> {
                 )
                 // Accumulate all state transition checks.
                 // This can be done because all summed values are enforced to be boolean.
+                // 累积所有状态转换检查。这是可以做到的，因为所有求和值都被强制为布尔值。
+                // Comment: 特别注意这些相邻的约束对于最后一个Step不需要满足
                 .reduce(|accum, poly| accum + poly)
                 .map(move |poly| {
                     q_usable.clone()
@@ -911,6 +931,7 @@ impl<F: Field> ExecutionConfig<F> {
         challenges: &Challenges<Expression<F>>,
         cell_manager: &CellManager<F>,
     ) {
+        // Comment: 为一些输入表达式和table表达式添加查找参数
         for column in cell_manager.columns().iter() {
             if let CellType::Lookup(table) = column.cell_type {
                 let name = format!("{:?}", table);
@@ -1002,6 +1023,7 @@ impl<F: Field> ExecutionConfig<F> {
     /// Assign block
     /// When exact is enabled, assign exact steps in block without padding for
     /// unit test purpose
+    /// 启用精确时，为单元测试目的在不填充的情况下分配块中的精确步骤
     pub fn assign_block(
         &self,
         layouter: &mut impl Layouter<F>,

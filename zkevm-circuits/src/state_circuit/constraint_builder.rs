@@ -98,6 +98,7 @@ impl<F: Field> ConstraintBuilder<F> {
     }
 
     pub fn build(&mut self, q: &Queries<F>) {
+        // 通用约束
         self.build_general_constraints(q);
         self.condition(q.tag_matches(RwTableTag::Start), |cb| {
             cb.build_start_constraints(q)
@@ -134,10 +135,12 @@ impl<F: Field> ConstraintBuilder<F> {
 
     fn build_general_constraints(&mut self, q: &Queries<F>) {
         // tag value in RwTableTag range is enforced in BinaryNumberChip
+        // RwTableTag 范围内的 tag 值在 BinaryNumberChip 中强制执行
         self.require_boolean("is_write is boolean", q.is_write());
 
         // 1 if first_different_limb is in the rw counter, 0 otherwise (i.e. any of the
         // 4 most significant bits are 0)
+        // 如果first_ different_limb在rw counter中则为1，否则为0（即4个最高有效位中的任何一个为0）
         self.require_equal(
             "not_first_access when first 16 limbs are same",
             q.not_first_access.clone(),
@@ -149,6 +152,7 @@ impl<F: Field> ConstraintBuilder<F> {
 
         // When at least one of the keys (tag, id, address, field_tag, or storage_key)
         // in the current row differs from the previous row.
+        // 当当前行中的至少一个键（tag、id、address、field_tag或storage_key）与上一行不同时。
         self.condition(q.first_access(), |cb| {
             cb.require_zero(
                 "first access reads don't change value",
@@ -175,6 +179,7 @@ impl<F: Field> ConstraintBuilder<F> {
         });
 
         // When all the keys in the current row and previous row are equal.
+        // 当当前行和上一行中的所有键都相等时。
         self.condition(q.not_first_access.clone(), |cb| {
             cb.require_zero(
                 "non-first access reads don't change value",
@@ -189,20 +194,25 @@ impl<F: Field> ConstraintBuilder<F> {
 
     fn build_start_constraints(&mut self, q: &Queries<F>) {
         // 1.0. Unused keys are 0
+        // 1.0. 未使用的键为0
         self.require_zero("field_tag is 0 for Start", q.field_tag());
         self.require_zero("address is 0 for Start", q.rw_table.address.clone());
         self.require_zero("id is 0 for Start", q.id());
         self.require_zero("storage_key is 0 for Start", q.rw_table.storage_key.clone());
         // 1.1. rw_counter increases by 1 for every non-first row
+        // 1.1. 对于每个非第一行，rw_counter加1
         self.require_zero(
             "rw_counter increases by 1 for every non-first row",
             q.lexicographic_ordering_selector.clone() * (q.rw_counter_change() - 1.expr()),
         );
         // 1.2. Start value is 0
+        // 1.2. 起始值为0
         self.require_zero("Start value is 0", q.value());
         // 1.3. Start initial value is 0
+        // 1.3. 启动初始值为0
         self.require_zero("Start initial_value is 0", q.initial_value());
         // 1.4. state_root is unchanged for every non-first row
+        // 1.4. 对于每个非第一行，state_root不变
         self.condition(q.lexicographic_ordering_selector.clone(), |cb| {
             cb.require_equal(
                 "state_root is unchanged for Start",
@@ -215,30 +225,37 @@ impl<F: Field> ConstraintBuilder<F> {
 
     fn build_memory_constraints(&mut self, q: &Queries<F>) {
         // 2.0. Unused keys are 0
+        // 2.0. 未使用的键为0
         self.require_zero("field_tag is 0 for Memory", q.field_tag());
         self.require_zero(
             "storage_key is 0 for Memory",
             q.rw_table.storage_key.clone(),
         );
         // 2.1. First access for a set of all keys are 0 if READ
+        // 2.1. 如果读取，则对一组所有键的首次访问为0
         self.require_zero(
             "first access for a set of all keys are 0 if READ",
             q.first_access() * q.is_read() * q.value(),
         );
         // could do this more efficiently by just asserting address = limb0 + 2^16 *
         // limb1?
+        // 可以通过断言 address = limb0 + 2^16 * limb1 来更有效地做到这一点吗？
         // 2.2. mem_addr in range
+        // 2.2. mem_addr在范围内
         for limb in &q.address.limbs[2..] {
             self.require_zero("memory address fits into 2 limbs", limb.clone());
         }
         // 2.3. value is a byte
+        // 2.3. 值是一个字节
         self.add_lookup(
             "memory value is a byte",
             vec![(q.rw_table.value.clone(), q.lookups.u8.clone())],
         );
         // 2.4. Start initial value is 0
+        // 2.4. 启动初始值为0
         self.require_zero("initial Memory value is 0", q.initial_value());
         // 2.5. state root does not change
+        // 2.5. 状态根不变
         self.require_equal(
             "state_root is unchanged for Memory",
             q.state_root(),
@@ -253,19 +270,23 @@ impl<F: Field> ConstraintBuilder<F> {
 
     fn build_stack_constraints(&mut self, q: &Queries<F>) {
         // 3.0. Unused keys are 0
+        // 3.0. 未使用的键为0
         self.require_zero("field_tag is 0 for Stack", q.field_tag());
         self.require_zero("storage_key is 0 for Stack", q.rw_table.storage_key.clone());
         // 3.1. First access for a set of all keys
+        // 3.1. 首次访问一组所有密钥
         self.require_zero(
             "first access to new stack address is a write",
             q.first_access() * (1.expr() - q.is_write()),
         );
         // 3.2. stack_ptr in range
+        // 3.2. stack_ptr在范围内
         self.add_lookup(
             "stack address fits into 10 bits",
             vec![(q.rw_table.address.clone(), q.lookups.u10.clone())],
         );
         // 3.3. stack_ptr only increases by 0 or 1
+        // 3.3. stack_ptr只增加0或1
         self.condition(q.is_tag_and_id_unchanged.clone(), |cb| {
             cb.require_boolean(
                 "if previous row is also Stack with unchanged call id, address change is 0 or 1",
@@ -273,8 +294,10 @@ impl<F: Field> ConstraintBuilder<F> {
             )
         });
         // 3.4. Stack initial value is 0
+        // 3.4. 堆栈初始值为0
         self.require_zero("initial Stack value is 0", q.initial_value.clone());
         // 3.5 state root does not change
+        // 3.5 状态根不变
         self.require_equal(
             "state_root is unchanged for Stack",
             q.state_root(),
@@ -290,6 +313,7 @@ impl<F: Field> ConstraintBuilder<F> {
     fn build_account_storage_constraints(&mut self, q: &Queries<F>) {
         // TODO: cold VS warm
         // ref. spec 4.0. Unused keys are 0
+        // ref. spec 4.0. 未使用的键为0
         // See comment above configure for is_non_exist in state_circuit.rs for a explanation of why
         // this is required.
         self.require_equal(
@@ -300,6 +324,7 @@ impl<F: Field> ConstraintBuilder<F> {
 
         // value = 0 means the leaf doesn't exist. 0->0 transition requires a
         // non-existing proof.
+        // value = 0表示叶子不存在。0->0转换需要一个不存在的证明。
         let is_non_exist = q.is_non_exist();
         self.require_equal(
             "mpt_proof_type is field_tag or NonExistingStorageProof",
@@ -309,6 +334,7 @@ impl<F: Field> ConstraintBuilder<F> {
         );
 
         // ref. spec 4.1. MPT lookup for last access to (address, storage_key)
+        // ref. spec 4.1. MPT查找上次访问(address, storage_key)的内容
         self.condition(q.last_access(), |cb| {
             cb.add_lookup(
                 "mpt_update exists in mpt circuit for AccountStorage last access",
