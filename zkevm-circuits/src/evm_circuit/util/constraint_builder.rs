@@ -16,13 +16,12 @@ use bus_mapping::{
     util::{KECCAK_CODE_HASH_ZERO, POSEIDON_CODE_HASH_ZERO},
 };
 use eth_types::{Field, ToLittleEndian, ToScalar, ToWord};
-use gadgets::util::{and, not};
+use gadgets::util::{and, not, sum};
 use halo2_proofs::{
     circuit::Value,
     plonk::{
-        Advice, Error,
+        Error,
         Expression::{self, Constant},
-        SecondPhase,
     },
 };
 
@@ -322,6 +321,8 @@ impl<'a, F: Field> ConstrainBuilderCommon<F> for EVMConstraintBuilder<'a, F> {
     }
 }
 
+pub(crate) type BoxedClosure<F> = Box<dyn FnOnce(&mut EVMConstraintBuilder<F>)>;
+
 impl<'a, F: Field> EVMConstraintBuilder<'a, F> {
     pub(crate) fn new(
         curr: Step<F>,
@@ -448,9 +449,14 @@ impl<'a, F: Field> EVMConstraintBuilder<'a, F> {
         self.query_cell_with_type(CellType::StoragePhase1)
     }
 
+    #[allow(clippy::let_and_return)]
     pub(crate) fn query_cell_phase2(&mut self) -> Cell<F> {
         let cell = self.query_cell_with_type(CellType::StoragePhase2);
-        assert_eq!(cell.column.column_type(), &Advice::new(SecondPhase));
+        #[cfg(not(feature = "onephase"))]
+        assert_eq!(
+            cell.column.column_type(),
+            &halo2_proofs::plonk::Advice::new(halo2_proofs::plonk::SecondPhase)
+        );
         cell
     }
 
@@ -497,7 +503,8 @@ impl<'a, F: Field> EVMConstraintBuilder<'a, F> {
 
     pub(crate) fn empty_code_hash_rlc(&self) -> Expression<F> {
         if cfg!(feature = "poseidon-codehash") {
-            Expression::Constant(POSEIDON_CODE_HASH_ZERO.to_word().to_scalar().unwrap())
+            let codehash = POSEIDON_CODE_HASH_ZERO.to_word().to_scalar().unwrap();
+            Expression::Constant(codehash)
         } else {
             self.word_rlc((*EMPTY_CODE_HASH_LE).map(|byte| byte.expr()))
         }
@@ -1355,13 +1362,14 @@ impl<'a, F: Field> EVMConstraintBuilder<'a, F> {
     }
 
     // Sig Table
-    pub(crate) fn sig_table_lookup<E: Expr<F>>(
+
+    pub(crate) fn sig_table_lookup(
         &mut self,
-        msg_hash_rlc: E,
-        sig_v: E,
-        sig_r_rlc: E,
-        sig_s_rlc: E,
-        recovered_addr: E,
+        msg_hash_rlc: Expression<F>,
+        sig_v: Expression<F>,
+        sig_r_rlc: Expression<F>,
+        sig_s_rlc: Expression<F>,
+        recovered_addr: Expression<F>,
     ) {
         self.add_lookup(
             "sig table",
@@ -1373,6 +1381,22 @@ impl<'a, F: Field> EVMConstraintBuilder<'a, F> {
                 recovered_addr: recovered_addr.expr(),
             },
         );
+    }
+
+    // Power of Randomness Table
+
+    pub(crate) fn pow_of_rand_lookup(
+        &mut self,
+        exponent: Expression<F>,
+        pow_of_rand: Expression<F>,
+    ) {
+        self.add_lookup(
+            "power of randomness",
+            Lookup::PowOfRandTable {
+                exponent,
+                pow_of_rand,
+            },
+        )
     }
 
     // Keccak Table
@@ -1419,6 +1443,53 @@ impl<'a, F: Field> EVMConstraintBuilder<'a, F> {
         let ret = constraint(self);
         self.conditions.pop();
         ret
+    }
+
+    /// Constraints the next step, given mutually exclusive conditions to determine the next state
+    /// and constrain it using the provided respective constraint. This mechanism is specifically
+    /// used for constraining the internal states for precompile calls. Each precompile call
+    /// expects a different cell layout, but since the next state can be at the most one precompile
+    /// state, we can re-use cells assigned across all those conditions.
+    pub(crate) fn constrain_mutually_exclusive_next_step(
+        &mut self,
+        conditions: Vec<Expression<F>>,
+        next_states: Vec<ExecutionState>,
+        constraints: Vec<BoxedClosure<F>>,
+    ) {
+        assert_eq!(conditions.len(), constraints.len());
+        assert_eq!(conditions.len(), next_states.len());
+        self.require_boolean(
+            "at the most one condition is true from mutually exclusive conditions",
+            sum::expr(&conditions),
+        );
+
+        // record the heights of all columns (for the next step) as we begin cell assignment.
+        let start_heights = self.next.cell_manager.get_heights();
+
+        let mut max_end_heights: Vec<usize> = vec![0usize; start_heights.len()];
+        for ((&next_state, condition), constraint) in next_states
+            .iter()
+            .zip(conditions.into_iter())
+            .zip(constraints.into_iter())
+        {
+            // constraint the next step.
+            self.constrain_next_step(next_state, Some(condition), constraint);
+
+            // get the column heights at the end of querying cells in the above constraints.
+            let end_heights = self.next.cell_manager.get_heights();
+            for (max_end_height, end_height) in max_end_heights.iter_mut().zip(end_heights.iter()) {
+                if end_height > max_end_height {
+                    *max_end_height = *end_height;
+                }
+            }
+
+            // reset the column heights of the next step before proceeding to the next mutually
+            // exclusive condition/constraint/next_state.
+            self.next.cell_manager.reset_heights_to(&start_heights);
+        }
+
+        // reset height of next step to the maximum heights of each column.
+        self.next.cell_manager.reset_heights_to(&max_end_heights);
     }
 
     /// This function needs to be used with extra precaution. You need to make

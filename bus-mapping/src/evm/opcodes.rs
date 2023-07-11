@@ -569,7 +569,11 @@ pub fn gen_begin_tx_ops(
             && !callee_account.code_hash.eq(&CodeDB::empty_code_hash()))
             || !callee_account.nonce.is_zero())
     {
-        unimplemented!("deployment collision");
+        unimplemented!(
+            "deployment collision at {:?}, account {:?}",
+            call.address,
+            callee_account
+        );
     }
     let (callee_code_hash, is_empty_code_hash) = match (state.tx.is_create(), callee_exists) {
         (true, _) => (call.code_hash.to_word(), false),
@@ -792,6 +796,37 @@ pub fn gen_end_tx_ops(state: &mut CircuitInputStateRef) -> Result<ExecStep, Erro
     if !found {
         log::error!("coinbase account not found: {}", block_info.coinbase);
         return Err(Error::AccountNotFound(block_info.coinbase));
+    }
+    let coinbase_account = coinbase_account.clone();
+    state.account_read(
+        &mut exec_step,
+        block_info.coinbase,
+        AccountField::CodeHash,
+        if coinbase_account.is_empty() {
+            Word::zero()
+        } else {
+            coinbase_account.code_hash.to_word()
+        },
+    );
+    if coinbase_account.is_empty() && !coinbase_reward.is_zero() {
+        state.account_write(
+            &mut exec_step,
+            block_info.coinbase,
+            AccountField::CodeHash,
+            CodeDB::empty_code_hash().to_word(),
+            Word::zero(),
+        )?;
+
+        #[cfg(feature = "scroll")]
+        {
+            state.account_write(
+                &mut exec_step,
+                block_info.coinbase,
+                AccountField::KeccakCodeHash,
+                crate::util::KECCAK_CODE_HASH_ZERO.to_word(),
+                Word::zero(),
+            )?;
+        }
     }
     let coinbase_balance_prev = coinbase_account.balance;
     let coinbase_balance = coinbase_balance_prev + coinbase_reward;

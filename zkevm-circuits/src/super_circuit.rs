@@ -82,7 +82,7 @@ use crate::{
     state_circuit::{StateCircuit, StateCircuitConfig, StateCircuitConfigArgs},
     table::{
         BlockTable, BytecodeTable, CopyTable, ExpTable, KeccakTable, MptTable, PoseidonTable,
-        RlpFsmRlpTable as RlpTable, RwTable, TxTable,
+        PowOfRandTable, RlpFsmRlpTable as RlpTable, RwTable, TxTable,
     },
 };
 
@@ -192,6 +192,8 @@ impl SubCircuitConfig<Fr> for SuperCircuitConfig<Fr> {
         log_circuit_info(meta, "keccak table");
         let sig_table = SigTable::construct(meta);
         log_circuit_info(meta, "sig table");
+        let pow_of_rand_table = PowOfRandTable::construct(meta, &challenges_expr);
+        log_circuit_info(meta, "power of randomness table");
 
         let keccak_circuit = KeccakCircuitConfig::new(
             meta,
@@ -326,6 +328,7 @@ impl SubCircuitConfig<Fr> for SuperCircuitConfig<Fr> {
                 keccak_table,
                 exp_table,
                 sig_table,
+                pow_of_rand_table,
             },
         );
         log_circuit_info(meta, "evm circuit");
@@ -620,12 +623,6 @@ impl<
 
         let block = self.evm_circuit.block.as_ref().unwrap();
 
-        // PI circuit had the hardcoded constants for RegionIndex of block table
-        // and tx table (which are 0 and 1).
-        // The reason for that is the assignment of block/tx tables are done in
-        // their load() functions which however do not emit the cells.
-        // To set up copy constraints between pi cells and block/tx table cells,
-        // we need to construct them manually.
         config.tx_table.load(
             &mut layouter,
             &block.txs,
@@ -633,13 +630,6 @@ impl<
             block.circuits_params.max_calldata,
             block.chain_id,
             &challenges,
-        )?;
-
-        config.mpt_table.load(
-            &mut layouter,
-            &self.state_circuit.updates,
-            block.circuits_params.max_mpt_rows,
-            challenges.evm_word(),
         )?;
 
         self.synthesize_sub(&config, &challenges, &mut layouter)
